@@ -1,0 +1,105 @@
+/* General Styles */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    background-color: #e3edd2;
+}
+
+.container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    padding: 30px;
+}
+
+/* Game Area */
+.game-area {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.outer-box {
+    background-color: #ffef9f;
+    border-radius: 15px;
+    padding: 20px;
+    width: 500px;
+    height: 400px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.inner-box {
+    background-color: #f37866;
+    border-radius: 15px;
+    width: 450px;
+    height: 350px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.card {
+    background-color: #40c4ff;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    width: 100%;
+}
+
+.card p {
+    margin: 0;
+    font-size: 18px;
+    font-weight: bold;
+    outline: none;
+}
+
+.card p:empty:before {
+    content: attr(placeholder);
+    color: #666;
+}
+
+.underline {
+    margin-top: 10px;
+    height: 2px;
+    width: 50px;
+    background-color: black;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Buttons */
+button {
+    background-color: #207cc9;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    border: none;
+    border-radius: 15px;
+    padding: 10px 20px;
+    margin: 5px;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 8px rgba(0, 0, 0, 0.3);
+}
+
+button:active {
+    transform: scale(0.95);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Button Container */
+.button-container {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+}

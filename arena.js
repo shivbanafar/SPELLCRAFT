@@ -5,15 +5,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     const card = document.querySelector('.card');
     const card_p = card.querySelector('p');
 
+    // Game state variables
+    let gameState = 'ready'; // 'ready', 'typing', 'done'
+    let startTime = null;
+    let endTime = null;
+    let totalGameTime = 60; // 60-second game window
+    let gameTimer = null;
+    let timeRemaining = totalGameTime;
+    let currentStats = {
+        totalSentences: 0,
+        totalWPM: 0,
+        totalAccuracy: 0,
+        bestWPM: 0,
+        worstWPM: Infinity,
+        correctChars: 0,
+        totalChars: 0
+    };
+
+    // Arena sizing constants
+    const maxWidth = outerBox.offsetWidth - 40;
+    const maxHeight = outerBox.offsetHeight - 40;
+    const minWidth = card.offsetWidth + 40;
+    const minHeight = card.offsetHeight + 40;
+    const shrinkDuration = 45; // Seconds to shrink to minimum if inactive
+    const growthPixels = 30; // Pixels to grow when typing correctly
+    let currentWidth = maxWidth;
+    let currentHeight = maxHeight;
+    let lastActiveTime = Date.now();
+
     // Fetch a random sentence from the server
-    let targetSentence = "";
-    try {
-        const response = await fetch('http://localhost:3000/random-sentence');
-        const data = await response.json();
-        targetSentence = data.sentence || "Default fallback sentence";
-    } catch (error) {
-        console.error('Failed to fetch random sentence:', error);
-        targetSentence = "Default fallback sentence";
+    async function fetchRandomSentence() {
+        try {
+            const response = await fetch('http://localhost:3000/random-sentence');
+            const data = await response.json();
+            return data.sentence || "Default fallback sentence";
+        } catch (error) {
+            console.error('Failed to fetch random sentence:', error);
+            return "Default fallback sentence";
+        }
     }
 
     // Improved function to jumble letters within each word
@@ -47,36 +76,113 @@ document.addEventListener('DOMContentLoaded', async () => {
         }).join(' ');
     }
 
-    // Jumbled sentence
-    const jumbledSentence = jumbleSentence(targetSentence);
+    // Create a container for tracking typing
+    const jumbledTextContainer = document.createElement('div');
+    jumbledTextContainer.style.position = 'absolute';
+    jumbledTextContainer.style.top = '0';
+    jumbledTextContainer.style.left = '0';
+    jumbledTextContainer.style.width = '100%';
+    jumbledTextContainer.style.height = '100%';
+    jumbledTextContainer.style.pointerEvents = 'none';
+    jumbledTextContainer.style.display = 'flex';
+    jumbledTextContainer.style.justifyContent = 'center';
+    jumbledTextContainer.style.alignItems = 'center';
+    jumbledTextContainer.style.color = 'rgba(0,0,0,0.2)';
+    jumbledTextContainer.style.fontSize = '18px';
+    jumbledTextContainer.style.fontWeight = 'bold';
+
+    const jumbledText = document.createElement('p');
+    jumbledText.style.margin = '0';
+    jumbledText.style.textAlign = 'center';
+    jumbledText.style.width = '100%';
+
+    jumbledTextContainer.appendChild(jumbledText);
+
+    // Create a typing overlay
+    const typingOverlay = document.createElement('div');
+    typingOverlay.style.position = 'absolute';
+    typingOverlay.style.top = '0';
+    typingOverlay.style.left = '0';
+    typingOverlay.style.width = '100%';
+    typingOverlay.style.height = '100%';
+    typingOverlay.style.pointerEvents = 'none';
+    typingOverlay.style.display = 'flex';
+    typingOverlay.style.justifyContent = 'center';
+    typingOverlay.style.alignItems = 'center';
+
+    const typingText = document.createElement('p');
+    typingText.style.margin = '0';
+    typingText.style.textAlign = 'center';
+    typingText.style.width = '100%';
+    typingText.style.zIndex = '10';
+
+    typingOverlay.appendChild(typingText);
 
     // Create stats display elements
     const statsContainer = document.createElement('div');
-    statsContainer.style.position = 'absolute';
-    statsContainer.style.top = '10px';
-    statsContainer.style.left = '10px';
-    statsContainer.style.backgroundColor = 'rgba(255,255,255,0.7)';
-    statsContainer.style.padding = '5px';
-    statsContainer.style.borderRadius = '5px';
-    statsContainer.style.fontWeight = 'bold';
-    statsContainer.style.display = 'flex';
-    statsContainer.style.flexDirection = 'column';
-    
-    const timerDisplay = document.createElement('div');
-    const statsDisplay = document.createElement('div');
-    
-    statsContainer.appendChild(timerDisplay);
-    statsContainer.appendChild(statsDisplay);
-    
-    innerBox.style.position = 'relative';
-    innerBox.appendChild(statsContainer);
+    statsContainer.className = 'game-stats';
+    statsContainer.innerHTML = `
+        <div class="stat-group">
+            <div class="stat-item">
+                <span class="stat-label">Time</span>
+                <span class="stat-value" id="timer">60s</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Sentences</span>
+                <span class="stat-value" id="sentences">0</span>
+            </div>
+        </div>
+        <div class="stat-group">
+            <div class="stat-item">
+                <span class="stat-label">WPM</span>
+                <span class="stat-value" id="wpm">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Accuracy</span>
+                <span class="stat-value" id="accuracy">100%</span>
+            </div>
+        </div>
+        <div class="stat-group extended-stats">
+            <div class="stat-item">
+                <span class="stat-label">Best WPM</span>
+                <span class="stat-value" id="best-wpm">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Chars/Min</span>
+                <span class="stat-value" id="chars-per-min">0</span>
+            </div>
+        </div>
+    `;
 
-    // Game state variables
-    let startTime = null;
-    let endTime = null;
-    let gameState = 'ready'; // 'ready', 'typing', 'done'
-    let gameTimer = null;
-    let timeRemaining = 5; // 5-second typing window
+    // Add containers to the game area
+    card.appendChild(jumbledTextContainer);
+    card.appendChild(typingOverlay);
+    document.querySelector('.inner-box').appendChild(statsContainer);
+
+    // Arena animation function
+    function animateArena(targetWidth, targetHeight) {
+        targetWidth = Math.max(minWidth, Math.min(targetWidth, maxWidth));
+        targetHeight = Math.max(minHeight, Math.min(targetHeight, maxHeight));
+
+        currentWidth = targetWidth;
+        currentHeight = targetHeight;
+
+        innerBox.style.width = `${currentWidth}px`;
+        innerBox.style.height = `${currentHeight}px`;
+    }
+
+    // Function to handle arena shrinking based on inactivity
+    function updateArenaSize() {
+        const currentTime = Date.now();
+        const inactiveDuration = (currentTime - lastActiveTime) / 1000;
+
+        const shrinkProgress = Math.min(inactiveDuration / shrinkDuration, 1);
+        
+        const targetWidth = maxWidth - (maxWidth - minWidth) * shrinkProgress;
+        const targetHeight = maxHeight - (maxHeight - minHeight) * shrinkProgress;
+
+        animateArena(targetWidth, targetHeight);
+    }
 
     // Function to calculate accuracy
     function calculateAccuracy(typed, target) {
@@ -95,148 +201,188 @@ document.addEventListener('DOMContentLoaded', async () => {
         return minLength > 0 ? (correctWords / targetWords.length) * 100 : 0;
     }
 
-    // Function to calculate WPM (MonkeyType-like)
-    function calculateWPM() {
-        if (!startTime || !endTime) return 0;
+    // Function to calculate WPM and character metrics
+    function calculateMetrics(startTime, endTime, targetSentence, typedText) {
+        if (!startTime || !endTime) return { wpm: 0, accuracy: 0, correctChars: 0 };
         
-        const typedText = card_p.textContent.trim();
-        const correctChars = targetSentence.split('').filter((char, index) => 
-            char.toLowerCase() === typedText.charAt(index)?.toLowerCase()
-        ).length;
+        const testDuration = (endTime - startTime) / 60000; // minutes
         
-        // Calculate time in minutes
-        const testDuration = (endTime - startTime) / 60000;
-        
-        // WPM calculation based on correct characters, assuming average word length of 5
-        return Math.round((correctChars / 5) / testDuration);
-    }
-
-    // Update timer display
-    function updateTimerDisplay() {
-        if (gameState === 'typing') {
-            timerDisplay.textContent = `Time left: ${timeRemaining}s`;
-        } else {
-            timerDisplay.textContent = '';
+        // Count correct characters
+        let correctChars = 0;
+        const minLength = Math.min(targetSentence.length, typedText.length);
+        for (let i = 0; i < minLength; i++) {
+            if (targetSentence[i].toLowerCase() === typedText[i].toLowerCase()) {
+                correctChars++;
+            }
         }
+
+        // WPM calculation based on correct characters
+        const wpm = Math.round((correctChars / 5) / testDuration);
+        const accuracy = calculateAccuracy(typedText, targetSentence);
+        const charsPerMin = Math.round(correctChars / testDuration);
+
+        return { wpm, accuracy, correctChars, charsPerMin };
     }
 
-    // Start typing phase
-    function startTyping() {
-        if (gameState !== 'ready') return;
+    // Update statistics display
+    function updateStatsDisplay() {
+        document.getElementById('timer').textContent = `${timeRemaining}s`;
+        document.getElementById('sentences').textContent = currentStats.totalSentences;
+        
+        const avgWPM = currentStats.totalSentences > 0 
+            ? Math.round(currentStats.totalWPM / currentStats.totalSentences) 
+            : 0;
+        document.getElementById('wpm').textContent = avgWPM;
+        
+        const avgAccuracy = currentStats.totalSentences > 0 
+            ? Math.round(currentStats.totalAccuracy / currentStats.totalSentences) 
+            : 100;
+        document.getElementById('accuracy').textContent = `${avgAccuracy}%`;
+        
+        document.getElementById('best-wpm').textContent = Math.round(currentStats.bestWPM);
+        
+        const avgCharsPerMin = currentStats.totalSentences > 0
+            ? Math.round(currentStats.correctChars / (totalGameTime / 60))
+            : 0;
+        document.getElementById('chars-per-min').textContent = avgCharsPerMin;
+    }
 
-        gameState = 'typing';
-        timeRemaining = 5;
-        startTime = performance.now();
+    // Game initialization
+    async function initializeGame() {
+        // Reset game state
+        gameState = 'ready';
+        timeRemaining = totalGameTime;
+        startTime = null;
+        endTime = null;
+        currentStats = {
+            totalSentences: 0,
+            totalWPM: 0,
+            totalAccuracy: 0,
+            bestWPM: 0,
+            worstWPM: Infinity,
+            correctChars: 0,
+            totalChars: 0
+        };
 
-        updateTimerDisplay();
+        // Reset arena size
+        currentWidth = maxWidth;
+        currentHeight = maxHeight;
+        innerBox.style.width = `${currentWidth}px`;
+        innerBox.style.height = `${currentHeight}px`;
+        lastActiveTime = Date.now();
 
+        // Fetch first sentence
+        const targetSentence = await fetchRandomSentence();
+        const jumbledSentence = jumbleSentence(targetSentence);
+
+        // Reset card and jumbled text
+        card_p.textContent = '';
+        card_p.contentEditable = 'true';
+        jumbledText.textContent = jumbledSentence;
+        typingText.textContent = '';
+
+        // Update initial stats display
+        updateStatsDisplay();
+
+        // Start game timer
         gameTimer = setInterval(() => {
             timeRemaining--;
-            updateTimerDisplay();
+            updateArenaSize();
+            updateStatsDisplay();
 
             if (timeRemaining <= 0) {
-                endTyping();
+                endGame();
             }
         }, 1000);
-    }
 
-    // End typing phase
-    function endTyping() {
-        if (gameState !== 'typing') return;
+        // Current sentence tracking
+        let currentTargetSentence = targetSentence;
 
-        clearInterval(gameTimer);
-        endTime = performance.now();
-        gameState = 'done';
-        
-        // Disable editing
-        card_p.contentEditable = 'false';
-        
-        // Calculate and display results
-        const wpm = calculateWPM();
-        const accuracy = calculateAccuracy(card_p.textContent, targetSentence);
-        
-        // Update stats display
-        statsDisplay.textContent = `WPM: ${wpm} | Accuracy: ${Math.round(accuracy)}%`;
-        
-        // Optional: Reset for next attempt
-        setTimeout(() => {
-            gameState = 'ready';
-            card_p.contentEditable = 'true';
-            card_p.textContent = '';
-            card_p.setAttribute('placeholder', `Get ready to type: "${jumbleSentence(targetSentence)}"`);
-        }, 3000);
-    }
+        // Enhanced input event listener
+        card_p.addEventListener('input', async (e) => {
+            lastActiveTime = Date.now();
 
-    // Input event listener to track typing and start game
-    card_p.addEventListener('input', (e) => {
-        if (gameState === 'ready' && e.inputType !== 'removeContentBackward') {
-            startTyping();
-        }
-    });
-
-    // Set initial placeholder
-    card_p.setAttribute('placeholder', `Get ready to type: "${jumbledSentence}"`);
-
-    // Log the jumbled sentence for reference
-    console.log('Jumbled Sentence:', jumbledSentence);
-    console.log('Original Sentence:', targetSentence);
-
-    // Rest of the arena animation code remains the same
-    let maxWidth = outerBox.offsetWidth - 40;
-    let maxHeight = outerBox.offsetHeight - 40;
-    const minWidth = card.offsetWidth + 40;
-    const minHeight = card.offsetHeight + 40;
-
-    const animationDuration = 1000;
-    let currentAnimation = null;
-
-    function animateArena(targetWidth, targetHeight) {
-        if (currentAnimation) {
-            cancelAnimationFrame(currentAnimation);
-        }
-
-        const startWidth = innerBox.offsetWidth;
-        const startHeight = innerBox.offsetHeight;
-        const startTime = performance.now();
-
-        function animate(currentTime) {
-            const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / animationDuration, 1);
-            const easeProgress = 1 - Math.pow(1 - progress, 3);
-
-            const newWidth = startWidth + (targetWidth - startWidth) * easeProgress;
-            const newHeight = startHeight + (targetHeight - startHeight) * easeProgress;
-
-            innerBox.style.width = `${Math.max(minWidth, Math.min(newWidth, maxWidth))}px`;
-            innerBox.style.height = `${Math.max(minHeight, Math.min(newHeight, maxHeight))}px`;
-
-            if (progress < 1) {
-                currentAnimation = requestAnimationFrame(animate);
+            if (gameState === 'ready' && e.inputType !== 'removeContentBackward') {
+                startTime = performance.now();
+                gameState = 'typing';
             }
-        }
 
-        currentAnimation = requestAnimationFrame(animate);
+            // Update typing overlay to show correct/incorrect characters
+            const typedText = card_p.textContent;
+            const remainingText = currentTargetSentence.slice(typedText.length);
+            
+            // Highlight correct and incorrect characters
+            let highlightedText = '';
+            for (let i = 0; i < typedText.length; i++) {
+                const isCorrect = typedText[i].toLowerCase() === currentTargetSentence[i].toLowerCase();
+                highlightedText += `<span style="color: ${isCorrect ? 'green' : 'red'}">${typedText[i]}</span>`;
+            }
+            highlightedText += `<span style="color: rgba(0,0,0,0.2)">${remainingText}</span>`;
+            
+            typingText.innerHTML = highlightedText;
+
+            // Check if sentence is complete
+            if (gameState === 'typing' && card_p.textContent.trim().toLowerCase() === currentTargetSentence.trim().toLowerCase()) {
+                // Calculate sentence metrics
+                endTime = performance.now();
+                const metrics = calculateMetrics(startTime, endTime, currentTargetSentence, card_p.textContent);
+
+                // Grow the arena for correct sentence
+                currentWidth = Math.min(maxWidth, currentWidth + growthPixels);
+                currentHeight = Math.min(maxHeight, currentHeight + growthPixels);
+                animateArena(currentWidth, currentHeight);
+
+                // Update overall stats
+                currentStats.totalSentences++;
+                currentStats.totalWPM += metrics.wpm;
+                currentStats.totalAccuracy += metrics.accuracy;
+                currentStats.correctChars += metrics.correctChars;
+                
+                // Update best and worst WPM
+                currentStats.bestWPM = Math.max(currentStats.bestWPM, metrics.wpm);
+                currentStats.worstWPM = Math.min(currentStats.worstWPM, metrics.wpm);
+
+                // Fetch and set up next sentence
+                const nextTargetSentence = await fetchRandomSentence();
+                const jumbledNextSentence = jumbleSentence(nextTargetSentence);
+
+                // Reset card for next sentence
+                card_p.textContent = '';
+                jumbledText.textContent = jumbledNextSentence;
+                typingText.textContent = '';
+                currentTargetSentence = nextTargetSentence;
+                
+                // Update display
+                updateStatsDisplay();
+
+                // Reset start time for next sentence
+                startTime = null;
+                endTime = null;
+            }
+        });
     }
 
-    // Initialize arena to full size
-    innerBox.style.width = `${maxWidth}px`;
-    innerBox.style.height = `${maxHeight}px`;
+    // End game function
+    function endGame() {
+        clearInterval(gameTimer);
+        card_p.contentEditable = 'false';
+        gameState = 'done';
 
-    // Listen for keystrokes for arena animation
-    document.addEventListener('keydown', (event) => {
-        const currentWidth = innerBox.offsetWidth;
-        const currentHeight = innerBox.offsetHeight;
+        // Show final stats
+        card_p.innerHTML = `
+            <div class="game-over-stats">
+                <h2>Game Over!</h2>
+                <p>Total Sentences: ${currentStats.totalSentences}</p>
+                <p>Average WPM: ${Math.round(currentStats.totalWPM / Math.max(1, currentStats.totalSentences))}</p>
+                <p>Average Accuracy: ${Math.round(currentStats.totalAccuracy / Math.max(1, currentStats.totalSentences))}%</p>
+                <p>Best WPM: ${Math.round(currentStats.bestWPM)}</p>
+            </div>
+        `;
 
-        if (event.key === ' ') {
-            // Shrink on spacebar
-            const targetWidth = maxWidth - (maxWidth - minWidth) * 0.5;
-            const targetHeight = maxHeight - (maxHeight - minHeight) * 0.5;
-            animateArena(targetWidth, targetHeight);
-        } else {
-            // Grow on any other key
-            const targetWidth = Math.min(maxWidth, currentWidth * 1.25);
-            const targetHeight = Math.min(maxHeight, currentHeight * 1.25);
-            animateArena(targetWidth, targetHeight);
-        }
-    });
+        // Restart game after 3 seconds
+        setTimeout(initializeGame, 3000);
+    }
+
+    // Start the game
+    initializeGame();
 });
